@@ -63,5 +63,5 @@ r=run(S=>{S.clockWhenStopped=true},1000,{noStart:true});r.eng.refreshClock();r.a
 const c2=r.msgs.filter(m=>m.b[0]===0xF8).length;assert(c2>=40&&c2<=60,'clock when stopped ~48 in 1s, got '+c2);
 assert(!r.msgs.some(m=>m.b[0]===0x90||m.b[0]===0xFA),'no notes/start while stopped');console.log('clock-when-stopped OK',c2);
 // 8. droid.ini reflects channels
-const S2=E.defaultState();S2.tracks[1].ch=7;const ini=E.droidIni(S2);assert(/channel = 7\n    pitch1 = O2\n    gate1 = G2/.test(ini));assert(/output = O7/.test(ini)&&/output = O8/.test(ini));
+const S2=E.defaultState();S2.tracks[1].ch=7;const ini=E.droidIni(S2);assert(/channel = 7\n    pitch1 = O2\n    gate1 = G2/.test(ini));assert(!/trs = 1\n/.test(ini)&&(ini.match(/^    usb = 1$/gm)||[]).length===5,"usb=1 in all 5 midiin");assert(/output = O7/.test(ini)&&/output = O8/.test(ini));
 console.log('droid.ini OK\nALL TESTS PASSED');
