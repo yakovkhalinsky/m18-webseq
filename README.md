@@ -58,6 +58,9 @@ O5 and O6 are spare. You can clock the Behringer STEPS from O7 and reset it from
   - Autosave in the browser.
   - Named save/load/delete (localStorage).
   - Export/import JSON.
+- **Presets:** pick one from the **Presets** dropdown and click **Load preset**. Built in so far:
+  - **Octave Strut**: an original octave-jumping bass groove on track 1 (ch 1) at 121 BPM with a 50% gate. Other tracks are empty.
+  - To add more, add an entry to the `PRESETS` array in `index.html` (`{name, bpm, tracks:[{notes:[…], gate}]}`; note 0 = step off).
 - **droid.ini panel** with a Copy button. It updates when you change channels and warns about duplicate channels.
 
 ### Step editing

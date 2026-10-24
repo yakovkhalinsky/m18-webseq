@@ -64,4 +64,13 @@ const c2=r.msgs.filter(m=>m.b[0]===0xF8).length;assert(c2>=40&&c2<=60,'clock whe
 assert(!r.msgs.some(m=>m.b[0]===0x90||m.b[0]===0xFA),'no notes/start while stopped');console.log('clock-when-stopped OK',c2);
 // 8. droid.ini reflects channels
 const S2=E.defaultState();S2.tracks[1].ch=7;const ini=E.droidIni(S2);assert(/channel = 7\n    pitch1 = O2\n    gate1 = G1\.2/.test(ini)&&/gate1 = G1\.1\n/.test(ini)&&/gate1 = G1\.4\n/.test(ini));assert(!/trs = 1\n/.test(ini)&&(ini.match(/^    usb = 1$/gm)||[]).length===5,"usb=1 in all 5 midiin");assert(/output = O7/.test(ini)&&/output = O8/.test(ini));
-console.log('droid.ini OK\nALL TESTS PASSED');
+console.log('droid.ini OK');
+// 9. preset 'Octave Strut'
+{const P=E.presetState('Octave Strut');const want=[40,52,0,40,0,47,52,0,43,0,55,43,0,50,45,52];
+assert.strictEqual(P.bpm,121);const t=P.tracks[0];assert.strictEqual(t.ch,1);assert.strictEqual(t.len,16);assert.strictEqual(t.gate,50);
+assert.deepStrictEqual(t.steps.slice(0,16).map(s=>s.on?s.note:0),want);
+for(let i=1;i<4;i++)assert(!P.tracks[i].steps.some(s=>s.on),'track '+(i+1)+' empty');
+const r9=run(S=>{Object.assign(S,P)},2000);const ons=r9.msgs.filter(m=>(m.b[0]&0xF0)===0x90);
+assert(ons.every(m=>m.b[0]===0x90));assert.deepStrictEqual(ons.slice(0,11).map(m=>m.b[1]),want.filter(x=>x));
+console.log('preset Octave Strut OK');}
+console.log('ALL TESTS PASSED');
