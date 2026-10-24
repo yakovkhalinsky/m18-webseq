@@ -19,7 +19,9 @@ Then open **http://localhost:8000** in **Chrome or Edge**. Allow MIDI access whe
 PC USB ──► USB cable ──► Master18 USB port   (droid.ini: usb = 1)
 ```
 
-- The Master18 appears as a USB MIDI device. Under **MIDI output**, pick the Master18/DROID entry. The choice is remembered.
+- The Master18 appears as a USB MIDI device; Windows lists it as **DROID X7 MIDI**. Pick that under **MIDI output**. The choice is remembered.
+- **Master18 USB switch:** set it to the **right** position for USB MIDI. Left = USB stick mode (SD card access), middle = off/reloads the patch.
+- Gate outputs are named **G1.1–G1.4** in the patch (track 1–4).
 - You don't need a separate MIDI interface. Per the DROID manual (blue-7, `midiin` → port selection), `usb = 1` is the Master18's own USB port, and setting only `usb` turns TRS off for that circuit.
 - **TRS also works:** to feed TRS MIDI1 from a USB MIDI interface instead, change every `usb = 1` to `trs = 1`.
 
@@ -27,10 +29,10 @@ PC USB ──► USB cable ──► Master18 USB port   (droid.ini: usb = 1)
 
 | Track | MIDI ch (default) | Pitch (1 V/oct) | Gate |
 |---|---|---|---|
-| 1 | 1 | O1 | G1 |
-| 2 | 2 | O2 | G2 |
-| 3 | 3 | O3 | G3 |
-| 4 (trigger mode by default) | 4 | O4 | G4 |
+| 1 | 1 | O1 | G1.1 |
+| 2 | 2 | O2 | G1.2 |
+| 3 | 3 | O3 | G1.3 |
+| 4 (trigger mode by default) | 4 | O4 | G1.4 |
 | Clock: 16ths, 0/5 V | MIDI clock | O7 | |
 | Start/reset: 0/5 V | MIDI Start | O8 | |
 
@@ -78,25 +80,25 @@ This is the default, and the app shows a live copy that updates with channel cha
     usb = 1
     channel = 1
     pitch1 = O1
-    gate1 = G1
+    gate1 = G1.1
 # track 2
 [midiin]
     usb = 1
     channel = 2
     pitch1 = O2
-    gate1 = G2
+    gate1 = G1.2
 # track 3
 [midiin]
     usb = 1
     channel = 3
     pitch1 = O3
-    gate1 = G3
-# track 4 (trigger mode - use gate G4)
+    gate1 = G1.3
+# track 4 (trigger mode - use gate G1.4)
 [midiin]
     usb = 1
     channel = 4
     pitch1 = O4
-    gate1 = G4
+    gate1 = G1.4
 # clock + start
 [midiin]
     usb = 1
