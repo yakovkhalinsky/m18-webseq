@@ -1,0 +1,126 @@
+# M18 Web Seq
+
+A 4-track pitch + gate step sequencer that runs in the browser (Web MIDI) and drives the **DROID Master18** via its TRS MIDI input. Single file (`index.html`), no build step, no internet needed.
+
+## Run it
+
+Web MIDI only works on a secure origin, so open it via **localhost** or an https URL, not by double-clicking:
+
+```sh
+cd m18-webseq
+python -m http.server 8000      # or: npx serve
+```
+
+Then open **http://localhost:8000** in **Chrome or Edge**. Allow MIDI access when asked. Firefox works too, but it asks for a site permission first. Safari doesn't support Web MIDI.
+
+## Wiring
+
+```
+PC USB ──► USB MIDI interface (with TRS or DIN MIDI out) ──► Master18 TRS MIDI IN
+                                                             (droid.ini: trs = 1)
+```
+
+- In the app, pick that interface under **MIDI output**. The choice is remembered.
+- **TRS type A vs B:** the Master18 expects **type A** (the MIDI-standard TRS). If your interface has a type B jack (some Arturia/Novation/older Korg gear), use a B→A adapter, or a DIN interface plus a DIN→TRS-A adapter. If notes don't arrive, the TRS type is the first thing to check.
+- If the interface has DIN out only, use a DIN→TRS type A adapter.
+
+## Outputs (matches droid.ini)
+
+| Track | MIDI ch (default) | Pitch (1 V/oct) | Gate |
+|---|---|---|---|
+| 1 | 1 | O1 | G1 |
+| 2 | 2 | O2 | G2 |
+| 3 | 3 | O3 | G3 |
+| 4 (trigger mode by default) | 4 | O4 | G4 |
+| Clock: 16ths, 0/5 V | MIDI clock | O7 | |
+| Start/reset: 0/5 V | MIDI Start | O8 | |
+
+O5 and O6 are spare. You can clock the Behringer STEPS from O7 and reset it from O8. Velocity is fixed (100 by default, set per track), because dynamics come from STEPS.
+
+## Features
+
+- **Transport:** Play/Stop (or the space bar), BPM 40–240, swing 50–75% (50 = straight, ~66 = triplet feel).
+  - Play sends MIDI **Start (0xFA)** and then **24 ppq clock (0xF8)**.
+  - Stop sends **Stop (0xFC)**, note-offs for any sounding notes, and All Notes Off (CC123) on each track channel.
+  - Optional **Clock when stopped** setting (off by default).
+  - **Panic** button.
+- **Timing:** uses a lookahead scheduler (a 25 ms `setTimeout` loop that schedules 120 ms ahead, with `performance.now()` timestamps passed to `output.send`), so timing doesn't depend on UI jank.
+- **Per track:**
+  - MIDI channel (1–16) and length 1–32 for polymeters.
+  - Gate %, velocity, mute.
+  - Transpose −oct, −1, +1, +oct.
+  - Randomise and clear.
+- **Per step:** on/off, note (shown as name + octave; MIDI 60 = C4), and **tie/slide**. A tied step holds into the next one, and the next note-on is sent *before* the previous note-off (legato). Tying into the same pitch holds it without a retrigger.
+- **Trigger mode** (on for track 4 by default) makes the track a drum trigger: a fixed note and a short gate in ms (15 ms by default).
+- **Scale quantise:** chromatic, major, minor, pentatonic minor, or dorian, plus a root. It's applied on output; the stored notes are kept.
+- **Patterns:**
+  - Autosave in the browser.
+  - Named save/load/delete (localStorage).
+  - Export/import JSON.
+- **droid.ini panel** with a Copy button. It updates when you change channels and warns about duplicate channels.
+
+### Step editing
+
+- Click = on/off.
+- Right-click or Shift+click = select a step. The step editor under the track then shows its note, on and tie.
+- Mouse wheel = note ±1 (hold Shift for ±12).
+- Alt+click = toggle tie.
+
+## droid.ini
+
+This is the default, and the app shows a live copy:
+
+```ini
+# track 1
+[midiin]
+    trs = 1
+    channel = 1
+    pitch1 = O1
+    gate1 = G1
+# track 2
+[midiin]
+    trs = 1
+    channel = 2
+    pitch1 = O2
+    gate1 = G2
+# track 3
+[midiin]
+    trs = 1
+    channel = 3
+    pitch1 = O3
+    gate1 = G3
+# track 4
+[midiin]
+    trs = 1
+    channel = 4
+    pitch1 = O4
+    gate1 = G4
+# clock + start
+[midiin]
+    trs = 1
+    clock = _MIDI_CLK16
+    start = _MIDI_START
+# 16th clock as 0/5 V on O7
+[copy]
+    input = _MIDI_CLK16 * 0.5
+    output = O7
+# start/reset pulse as 0/5 V on O8
+[copy]
+    input = _MIDI_START * 0.5
+    output = O8
+```
+
+(It's also saved as `droid.ini` in this folder.)
+
+## Tests
+
+`./test/run.sh` (needs Node 18+) extracts the engine script from `index.html` and runs it against a mocked MIDI output with a virtual clock. It checks:
+
+- Start before the first clock, and 24 clocks per beat.
+- Note on/off on channels 1–4, fixed velocity, and gate length.
+- The trigger-mode gate.
+- The legato order for ties.
+- The swing offset and polymeter lengths.
+- Scale quantise and channel changes.
+- Stop/CC123, and clock-when-stopped.
+- The droid.ini output.

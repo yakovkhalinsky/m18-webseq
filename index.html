@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M18 Web Sequencer – DROID Master18 MIDI</title>
+<style>
+:root{--bg:#121417;--panel:#1b1e23;--panel2:#23272e;--line:#30353d;--txt:#d8dde3;--dim:#7c8590;--acc:#4fc3a1;--acc2:#e8a33d;--red:#e0605a;--tie:#7aa2f7}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:13px/1.4 system-ui,Segoe UI,Roboto,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+h1{font-size:15px;margin:0 10px 0 0;letter-spacing:.5px}
+h1 span{color:var(--acc)}
+main{padding:12px 14px;display:grid;gap:12px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+label{color:var(--dim);display:inline-flex;align-items:center;gap:5px}
+input,select,button,textarea{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px 6px;font:inherit}
+input[type=number]{width:58px}
+input[type=range]{padding:0;width:110px;accent-color:var(--acc)}
+input[type=checkbox]{accent-color:var(--acc)}
+button{cursor:pointer}
+button:hover{border-color:var(--acc)}
+button.play{background:var(--acc);color:#0d1512;font-weight:700;min-width:80px;border:none}
+button.play.on{background:var(--red);color:#fff}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.note{color:var(--dim);font-size:12px}
+.warn{color:var(--acc2)}
+.track{border-left:4px solid var(--c)}
+.track h2{font-size:13px;margin:0;color:var(--c);min-width:70px}
+.track.muted{opacity:.55}
+.grid{display:grid;grid-template-columns:repeat(16,minmax(34px,1fr));gap:4px;margin:8px 0}
+.cell{height:40px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;user-select:none;cursor:pointer;position:relative}
+.cell:nth-child(4n+1){border-color:#454c57}
+.cell.on{background:color-mix(in srgb,var(--c) 70%,#000);color:#fff;border-color:var(--c)}
+.cell.tie::after{content:"";position:absolute;right:-6px;top:50%;width:8px;height:3px;background:var(--tie);z-index:1}
+.cell.sel{outline:2px solid #fff;outline-offset:1px}
+.cell.ph{box-shadow:0 0 0 2px var(--acc2) inset}
+.cell small{color:var(--dim);font-size:9px}
+.cell.on small{color:#ddd}
+.ed{background:var(--panel2);border-radius:6px;padding:6px 8px}
+pre{background:#0d0f12;border:1px solid var(--line);border-radius:6px;padding:8px;max-height:300px;overflow:auto;margin:6px 0 0;font:12px/1.35 ui-monospace,Consolas,monospace}
+#status{margin-left:auto}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--red);margin-right:5px}
+.dot.ok{background:var(--acc)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:900px){.cols{grid-template-columns:1fr}.grid{grid-template-columns:repeat(8,1fr)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>M18 <span>Web Seq</span></h1>
+  <button id="play" class="play" title="Space bar">▶ Play</button>
+  <label>BPM <input id="bpm" type="number" min="40" max="240" step="1"><input id="bpmR" type="range" min="40" max="240"></label>
+  <label title="50% = straight, 66% = triplet feel">Swing <input id="swing" type="range" min="50" max="75"><span id="swingV"></span>%</label>
+  <label>Scale <select id="scale"></select></label>
+  <label>Root <select id="root"></select></label>
+  <label title="Send 24 ppq clock even while stopped (off by default)"><input id="clkStop" type="checkbox"> Clock when stopped</label>
+  <button id="panic" title="Note-off for every note on every track channel">Panic</button>
+  <div id="status"><span class="dot" id="dot"></span><span id="statusTxt">MIDI not ready</span></div>
+</header>
+<main>
+  <div class="box row">
+    <label>MIDI output <select id="port"><option value="">— none —</option></select></label>
+    <button id="refresh">Refresh</button>
+    <span class="note">Choose the USB MIDI interface whose TRS/DIN out feeds the Master18 TRS MIDI in. Web MIDI needs Chrome or Edge on <b>https</b> or <b>http://localhost</b> (e.g. <code>python -m http.server</code> then open http://localhost:8000). Firefox asks for a site permission first.</span>
+  </div>
+  <div id="tracks"></div>
+  <div class="cols">
+    <div class="box">
+      <div class="row"><b>Patterns</b>
+        <input id="patName" placeholder="pattern name" style="width:140px">
+        <button id="save">Save</button>
+        <select id="patList"><option value="">— saved —</option></select>
+        <button id="load">Load</button>
+        <button id="del">Delete</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="export">Export JSON</button>
+        <button id="importBtn">Import JSON</button>
+        <input id="importFile" type="file" accept=".json,application/json" hidden>
+        <span class="note">Current state autosaves in this browser.</span>
+      </div>
+      <p class="note">Steps: <b>click</b> = on/off · <b>right-click</b> or <b>Shift+click</b> = select for editing · <b>mouse wheel</b> = note ±1 (Shift ±12) · <b>Alt+click</b> = tie/slide. Space = play/stop.</p>
+    </div>
+    <div class="box">
+      <div class="row"><b>Matching droid.ini</b><button id="copyIni">Copy</button><span id="iniWarn" class="note warn"></span></div>
+      <pre id="ini"></pre>
+    </div>
+  </div>
+</main>
+
+<!-- Engine: no DOM access, so it can be unit-tested in Node -->
+<script id="engine">
+const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName=n=>NOTE_NAMES[((n%12)+12)%12]+(Math.floor(n/12)-1); // MIDI 60 = C4
+const SCALES={chromatic:[0,1,2,3,4,5,6,7,8,9,10,11],major:[0,2,4,5,7,9,11],minor:[0,2,3,5,7,8,10],pentMinor:[0,3,5,7,10],dorian:[0,2,3,5,7,9,10]};
+const SCALE_LABELS={chromatic:'Chromatic',major:'Major',minor:'Minor',pentMinor:'Pentatonic minor',dorian:'Dorian'};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function quantise(n,scale,root){
+  const iv=SCALES[scale]||SCALES.chromatic;
+  if(iv.length===12)return clamp(n,0,127);
+  const ok=m=>m>=0&&m<=127&&iv.includes((((m-root)%12)+12)%12);
+  for(let d=0;d<12;d++){if(ok(n-d))return n-d;if(ok(n+d))return n+d;}
+  return clamp(n,0,127);
+}
+function defaultState(){
+  const pats=[[0,4,8,12],[2,6,10,14],[0,3,6,8,11,14],[0,4,8,12]];
+  const base=[48,36,60,36];
+  return {bpm:120,swing:50,scale:'chromatic',root:0,clockWhenStopped:false,
+    tracks:[0,1,2,3].map(i=>({ch:i+1,len:16,gate:50,vel:100,mute:false,
+      trigger:i===3,trigNote:36,trigMs:15,
+      steps:Array.from({length:32},(_,s)=>({on:pats[i].includes(s),note:base[i]+(i===0?[0,3,7,10][(s/4|0)%4]:0),tie:false}))}))};
+}
+function createEngine(o){
+  const now=o.now,setT=o.setTimeout,clearT=o.clearTimeout;
+  const LOOKAHEAD=o.lookahead||120,INTERVAL=o.interval||25;
+  let out=null,running=false,timer=null,nextTick=0,tickCount=0,stepCount=0;
+  let held=[null,null,null,null];
+  const sounding=new Map(); // "ch:note" -> true (note-on sent, note-off not yet scheduled)
+  const st=()=>o.getState();
+  const tickDur=()=>60000/clamp(st().bpm,40,240)/24;
+  function send(b,t){if(!out)return;try{out.send(b,t)}catch(e){o.onError&&o.onError(e)}}
+  function on(ch,n,v,t){send([0x90|ch,n,v],t);sounding.set(ch+':'+n,true)}
+  function off(ch,n,t){send([0x80|ch,n,0],t);sounding.delete(ch+':'+n)}
+  function doStep(s,t){
+    const stepDur=tickDur()*6;
+    const swingOff=(stepCount%2===1)?(clamp(s.swing,50,75)-50)/50*stepDur:0;
+    const ts=t+swingOff;
+    s.tracks.forEach((tr,i)=>{
+      const len=clamp(tr.len|0,1,32),idx=stepCount%len,step=tr.steps[idx];
+      const ch=(clamp(tr.ch|0,1,16)-1)&15,vel=clamp(tr.vel|0,1,127);
+      o.onStep&&o.onStep(i,idx,ts);
+      const h=held[i];
+      if(tr.mute||!step.on){if(h){off(h.ch,h.note,ts);held[i]=null}return}
+      if(tr.trigger){
+        if(h){off(h.ch,h.note,ts);held[i]=null}
+        const n=clamp(tr.trigNote|0,0,127);
+        on(ch,n,vel,ts);off(ch,n,ts+clamp(tr.trigMs|0,1,1000));return;
+      }
+      const n=quantise(step.note,s.scale,s.root|0);
+      if(h&&h.note===n&&h.ch===ch){/* tie into same pitch: keep holding */}
+      else{on(ch,n,vel,ts);if(h)off(h.ch,h.note,ts+0.5);} // legato: new on before old off
+      held[i]=null;
+      if(step.tie)held[i]={ch,note:n};
+      else off(ch,n,ts+Math.max(2,clamp(tr.gate,1,100)/100*stepDur-1));
+    });
+    stepCount++;
+  }
+  function loop(){
+    const s=st(),horizon=now()+LOOKAHEAD;
+    while(nextTick<horizon){
+      if(running||s.clockWhenStopped)send([0xF8],nextTick);
+      if(running){if(tickCount%6===0)doStep(s,nextTick);tickCount++}
+      nextTick+=tickDur();
+    }
+    if(running||s.clockWhenStopped)timer=setT(loop,INTERVAL);else timer=null;
+  }
+  function kick(){if(timer!==null)clearT(timer);timer=null;loop()}
+  function allOff(t){
+    const chans=new Set(st().tracks.map(tr=>(clamp(tr.ch|0,1,16)-1)&15));
+    for(const k of [...sounding.keys()]){const [c,n]=k.split(':').map(Number);off(c,n,t)}
+    held=[null,null,null,null];
+    chans.forEach(c=>{send([0xB0|c,123,0],t)});
+  }
+  return{
+    setOutput(p){out=p},
+    get running(){return running},
+    start(){
+      if(running)return;
+      const t0=now()+20;
+      running=true;tickCount=0;stepCount=0;held=[null,null,null,null];
+      send([0xFA],t0);nextTick=t0;kick();
+    },
+    stop(){
+      if(!running)return;
+      running=false;const t=now();
+      send([0xFC],t);allOff(t);
+      allOff(t+LOOKAHEAD+10); // after anything still queued in the lookahead window
+      if(timer!==null){clearT(timer);timer=null}
+      if(st().clockWhenStopped){nextTick=Math.max(nextTick,now());loop()}
+    },
+    refreshClock(){ // call when clockWhenStopped toggles
+      if(running)return;
+      if(st().clockWhenStopped&&timer===null){nextTick=now()+10;loop()}
+      else if(!st().clockWhenStopped&&timer!==null){clearT(timer);timer=null}
+    },
+    panic(){
+      const t=now();
+      st().tracks.forEach(tr=>{const c=(clamp(tr.ch|0,1,16)-1)&15;for(let n=0;n<128;n++)send([0x80|c,n,0],t);send([0xB0|c,123,0],t)});
+      sounding.clear();held=[null,null,null,null];
+    },
+    _loop:loop
+  };
+}
+function droidIni(s){
+  const L=['# droid.ini - M18 Web Seq (browser Web MIDI) -> USB MIDI interface TRS out -> MASTER18 TRS MIDI IN','# generated by m18-webseq'];
+  s.tracks.forEach((tr,i)=>{
+    L.push(`# track ${i+1}${tr.trigger?' (trigger mode - use gate G'+(i+1)+')':''}`,'[midiin]','    trs = 1',`    channel = ${tr.ch}`,`    pitch1 = O${i+1}`,`    gate1 = G${i+1}`);
+  });
+  L.push('# clock + start','[midiin]','    trs = 1','    clock = _MIDI_CLK16','    start = _MIDI_START',
+    '# 16th clock as 0/5 V on O7','[copy]','    input = _MIDI_CLK16 * 0.5','    output = O7',
+    '# start/reset pulse as 0/5 V on O8','[copy]','    input = _MIDI_START * 0.5','    output = O8');
+  return L.join('\n')+'\n';
+}
+if(typeof module!=='undefined')module.exports={createEngine,defaultState,quantise,noteName,droidIni,SCALES};
+</script>
+
+<!-- UI -->
+<script id="ui">
+(function(){
+const COLORS=['#4fc3a1','#e8a33d','#7aa2f7','#e0605a'];
+const LS_STATE='m18seq.state',LS_PATS='m18seq.patterns',LS_PORT='m18seq.port';
+const $=id=>document.getElementById(id);
+let S=load(LS_STATE)||defaultState();
+const sel=[0,0,0,0];
+let access=null;
+function load(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}}
+function sane(x){const d=defaultState();if(!x||!Array.isArray(x.tracks))return d;
+  const s=Object.assign({},d,x);s.tracks=d.tracks.map((dt,i)=>{const t=Object.assign({},dt,x.tracks[i]||{});
+    t.steps=dt.steps.map((ds,j)=>Object.assign({},ds,(x.tracks[i]&&x.tracks[i].steps&&x.tracks[i].steps[j])||{}));return t});return s}
+S=sane(S);
+let saveT=null;
+function persist(){clearTimeout(saveT);saveT=setTimeout(()=>localStorage.setItem(LS_STATE,JSON.stringify(S)),200)}
+
+const engine=createEngine({getState:()=>S,now:()=>performance.now(),setTimeout:(f,ms)=>setTimeout(f,ms),clearTimeout:t=>clearTimeout(t),
+  onStep:(tr,idx,t)=>phQueue.push({tr,idx,t}),onError:e=>status(false,'Send failed: '+e.message)});
+
+// ---- playhead (visual only, synced to scheduled times) ----
+const phQueue=[],ph=[-1,-1,-1,-1];
+function raf(){const n=performance.now();
+  while(phQueue.length&&phQueue[0].t<=n){const e=phQueue.shift();setPh(e.tr,e.idx)}
+  requestAnimationFrame(raf)}
+function setPh(tr,idx){const g=$('grid'+tr);if(!g)return;
+  if(ph[tr]>=0&&g.children[ph[tr]])g.children[ph[tr]].classList.remove('ph');
+  ph[tr]=idx;if(idx>=0&&g.children[idx])g.children[idx].classList.add('ph')}
+requestAnimationFrame(raf);
+
+// ---- MIDI ----
+function status(ok,txt){$('dot').className='dot'+(ok?' ok':'');$('statusTxt').textContent=txt}
+function fillPorts(){
+  const p=$('port'),want=load(LS_PORT)||{};
+  p.innerHTML='<option value="">— none —</option>';
+  if(!access)return;
+  let chosen=null;
+  access.outputs.forEach(o=>{const op=document.createElement('option');op.value=o.id;op.textContent=o.name+(o.state==='disconnected'?' (disconnected)':'');p.appendChild(op);
+    if(o.id===want.id||(!chosen&&o.name===want.name))chosen=o});
+  if(chosen){p.value=chosen.id;engine.setOutput(chosen);status(true,'→ '+chosen.name)}
+  else{engine.setOutput(null);status(false,access.outputs.size?'Pick an output':'No MIDI outputs found')}
+}
+async function initMidi(){
+  if(!navigator.requestMIDIAccess){status(false,'Web MIDI unavailable – use Chrome/Edge over https or localhost');return}
+  try{access=await navigator.requestMIDIAccess({sysex:false});access.onstatechange=fillPorts;fillPorts()}
+  catch(e){status(false,'MIDI access denied: '+e.message)}
+}
+$('port').onchange=()=>{const o=access&&access.outputs.get($('port').value);
+  localStorage.setItem(LS_PORT,JSON.stringify(o?{id:o.id,name:o.name}:{}));
+  engine.setOutput(o||null);o?status(true,'→ '+o.name):status(false,'No output selected')};
+$('refresh').onclick=initMidi;
+
+// ---- transport / globals ----
+function togglePlay(){if(engine.running)engine.stop();else engine.start();
+  $('play').classList.toggle('on',engine.running);$('play').textContent=engine.running?'■ Stop':'▶ Play';
+  if(!engine.running){phQueue.length=0;[0,1,2,3].forEach(i=>setPh(i,-1))}}
+$('play').onclick=togglePlay;
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)){e.preventDefault();togglePlay()}});
+$('panic').onclick=()=>engine.panic();
+function setBpm(v){S.bpm=Math.max(40,Math.min(240,Math.round(+v||120)));$('bpm').value=$('bpmR').value=S.bpm;persist()}
+$('bpm').onchange=e=>setBpm(e.target.value);$('bpmR').oninput=e=>setBpm(e.target.value);
+$('swing').oninput=e=>{S.swing=+e.target.value;$('swingV').textContent=S.swing;persist()};
+Object.keys(SCALES).forEach(k=>$('scale').add(new Option(SCALE_LABELS[k],k)));
+NOTE_NAMES.forEach((n,i)=>$('root').add(new Option(n,i)));
+$('scale').onchange=e=>{S.scale=e.target.value;renderAll();persist()};
+$('root').onchange=e=>{S.root=+e.target.value;renderAll();persist()};
+$('clkStop').onchange=e=>{S.clockWhenStopped=e.target.checked;engine.refreshClock();persist()};
+function syncGlobals(){$('bpm').value=$('bpmR').value=S.bpm;$('swing').value=S.swing;$('swingV').textContent=S.swing;
+  $('scale').value=S.scale;$('root').value=S.root;$('clkStop').checked=S.clockWhenStopped}
+
+// ---- tracks ----
+const noteOpts=()=>{let h='';for(let n=127;n>=0;n--)h+=`<option value="${n}">${noteName(n)} (${n})</option>`;return h};
+const NOTE_OPTS=noteOpts();
+function shown(tr,st){return tr.trigger?tr.trigNote:quantise(st.note,S.scale,S.root)}
+function buildTracks(){
+  const root=$('tracks');root.innerHTML='';
+  S.tracks.forEach((tr,i)=>{
+    const d=document.createElement('div');d.className='box track';d.style.setProperty('--c',COLORS[i]);d.id='trk'+i;
+    d.innerHTML=`<div class="row"><h2>Track ${i+1}</h2>
+      <label>Ch <input type="number" min="1" max="16" data-k="ch"></label>
+      <label>Length <input type="number" min="1" max="32" data-k="len"></label>
+      <label>Gate % <input type="number" min="1" max="100" data-k="gate"></label>
+      <label title="Fixed velocity; dynamics come from STEPS">Vel <input type="number" min="1" max="127" data-k="vel"></label>
+      <label><input type="checkbox" data-k="mute"> Mute</label>
+      <label title="Drum trigger: fixed note, short gate"><input type="checkbox" data-k="trigger"> Trigger mode</label>
+      <span class="trigopts"><label>note <select data-k="trigNote">${NOTE_OPTS}</select></label>
+      <label>gate ms <input type="number" min="1" max="1000" data-k="trigMs"></label></span>
+      <span style="flex:1"></span>
+      <button data-t="-12">−oct</button><button data-t="-1">−1</button><button data-t="1">+1</button><button data-t="12">+oct</button>
+      <button data-a="rand">Randomise</button><button data-a="clear">Clear</button></div>
+      <div class="grid" id="grid${i}"></div>
+      <div class="ed row"><span>Step <b class="sn"></b></span>
+        <label><input type="checkbox" data-s="on"> On</label>
+        <label>Note <select data-s="note">${NOTE_OPTS}</select></label>
+        <label title="Hold into next step; next note-on is sent before this note-off (legato/slide)"><input type="checkbox" data-s="tie"> Tie / slide</label>
+        <span class="note qn"></span></div>`;
+    root.appendChild(d);
+    d.querySelectorAll('[data-k]').forEach(el=>{const k=el.dataset.k;
+      el.onchange=()=>{let v=el.type==='checkbox'?el.checked:+el.value;
+        const lim={ch:[1,16],len:[1,32],gate:[1,100],vel:[1,127],trigMs:[1,1000],trigNote:[0,127]}[k];
+        if(lim)v=Math.max(lim[0],Math.min(lim[1],Math.round(v)||lim[0]));
+        tr[k]=v;if(k==='len'&&sel[i]>=v)sel[i]=0;renderTrack(i);renderIni();persist()}});
+    d.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const t=+b.dataset.t;
+      if(tr.steps.some(s=>s.note+t<0||s.note+t>127))return;tr.steps.forEach(s=>s.note+=t);renderTrack(i);persist()});
+    d.querySelector('[data-a=rand]').onclick=()=>{const base=tr.steps[sel[i]].note;const lo=Math.max(0,Math.min(103,base-12));
+      tr.steps.forEach(s=>{s.on=Math.random()<(tr.trigger?0.4:0.55);s.note=quantise(lo+Math.floor(Math.random()*25),S.scale,S.root);s.tie=!tr.trigger&&Math.random()<0.12});renderTrack(i);persist()};
+    d.querySelector('[data-a=clear]').onclick=()=>{tr.steps.forEach(s=>{s.on=false;s.tie=false});renderTrack(i);persist()};
+    d.querySelectorAll('[data-s]').forEach(el=>el.onchange=()=>{const s=tr.steps[sel[i]],k=el.dataset.s;s[k]=el.type==='checkbox'?el.checked:+el.value;renderTrack(i);persist()});
+  });
+}
+function renderTrack(i){
+  const tr=S.tracks[i],d=$('trk'+i),g=$('grid'+i);
+  d.classList.toggle('muted',tr.mute);
+  d.querySelectorAll('[data-k]').forEach(el=>{const v=tr[el.dataset.k];if(el.type==='checkbox')el.checked=v;else el.value=v});
+  d.querySelector('.trigopts').style.display=tr.trigger?'':'none';
+  g.innerHTML='';
+  for(let j=0;j<tr.len;j++){const st=tr.steps[j],c=document.createElement('div');
+    c.className='cell'+(st.on?' on':'')+(st.tie&&st.on&&!tr.trigger?' tie':'')+(sel[i]===j?' sel':'')+(ph[i]===j?' ph':'');
+    c.innerHTML=`<span>${noteName(shown(tr,st))}</span><small>${j+1}</small>`;
+    c.onclick=e=>{if(e.shiftKey){selStep(i,j);return}if(e.altKey){st.tie=!st.tie;st.on=true}else st.on=!st.on;sel[i]=j;renderTrack(i);persist()};
+    c.oncontextmenu=e=>{e.preventDefault();selStep(i,j)};
+    c.onwheel=e=>{e.preventDefault();const dlt=(e.deltaY<0?1:-1)*(e.shiftKey?12:1);st.note=Math.max(0,Math.min(127,st.note+dlt));sel[i]=j;renderTrack(i);persist()};
+    g.appendChild(c)}
+  const s=tr.steps[sel[i]];
+  d.querySelector('.sn').textContent=sel[i]+1;
+  d.querySelector('[data-s=on]').checked=s.on;d.querySelector('[data-s=note]').value=s.note;d.querySelector('[data-s=tie]').checked=s.tie;
+  const q=quantise(s.note,S.scale,S.root);
+  d.querySelector('.qn').textContent=tr.trigger?'Trigger mode: sends fixed note '+noteName(tr.trigNote)+' for '+tr.trigMs+' ms':(q!==s.note?'plays as '+noteName(q)+' (scale quantised)':'');
+}
+function selStep(i,j){sel[i]=j;renderTrack(i)}
+function renderIni(){$('ini').textContent=droidIni(S);
+  const ch=S.tracks.map(t=>t.ch),dup=ch.filter((c,i)=>ch.indexOf(c)!==i);
+  $('iniWarn').textContent=dup.length?'Warning: tracks share MIDI channel '+[...new Set(dup)].join(', '):''}
+function renderAll(){syncGlobals();S.tracks.forEach((_,i)=>renderTrack(i));renderIni()}
+$('copyIni').onclick=async()=>{try{await navigator.clipboard.writeText(droidIni(S));$('copyIni').textContent='Copied ✓'}catch(e){
+  const r=document.createRange();r.selectNode($('ini'));getSelection().removeAllRanges();getSelection().addRange(r);document.execCommand('copy');$('copyIni').textContent='Copied ✓'}
+  setTimeout(()=>$('copyIni').textContent='Copy',1500)};
+
+// ---- patterns ----
+function pats(){return load(LS_PATS)||{}}
+function fillPats(){const l=$('patList'),p=pats();l.innerHTML='<option value="">— saved —</option>';Object.keys(p).sort().forEach(n=>l.add(new Option(n,n)))}
+function apply(x){const wasRunning=engine.running;S=sane(x);if(wasRunning){/* keep playing with new data */}renderAll();persist()}
+$('save').onclick=()=>{const n=($('patName').value||'').trim()||('Pattern '+new Date().toLocaleString('en-AU'));const p=pats();p[n]=JSON.parse(JSON.stringify(S));localStorage.setItem(LS_PATS,JSON.stringify(p));fillPats();$('patList').value=n};
+$('load').onclick=()=>{const n=$('patList').value,p=pats();if(p[n]){apply(p[n]);$('patName').value=n}};
+$('del').onclick=()=>{const n=$('patList').value,p=pats();if(n&&p[n]&&confirm('Delete "'+n+'"?')){delete p[n];localStorage.setItem(LS_PATS,JSON.stringify(p));fillPats()}};
+$('export').onclick=()=>{const b=new Blob([JSON.stringify({app:'m18-webseq',version:1,state:S},null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=(($('patName').value||'m18-pattern').replace(/[^\w-]+/g,'_'))+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{const j=JSON.parse(await f.text());apply(j.state||j);$('patName').value=f.name.replace(/\.json$/i,'')}catch(err){alert('Could not import: '+err.message)}e.target.value=''};
+
+buildTracks();fillPats();renderAll();initMidi();
+if(location.protocol==='file:')status(false,'Opened from file:// – serve via http://localhost for Web MIDI');
+})();
+</script>
+</body>
+</html>
