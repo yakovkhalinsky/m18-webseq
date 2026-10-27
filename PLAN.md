@@ -33,7 +33,9 @@ The app stays a **single `index.html`** with no build step: open it over
   tracks keep the full 128-note list for their fixed drum note.
 - `saneState()` moved into the engine script and exported, so it is unit-testable.
 - State gained `version: 2` for scale-first, then `version: 3` for the 5-track
-  layout; both upgrades are non-destructive.
+  layout, then `version: 4` for the 4-track (1 melodic + 3 drum) layout. The
+  layout upgrades remap the musically meaningful tracks rather than discarding
+  them (see below).
 - README updated with the new behaviour.
 - Tests added for scale helpers, direction, degree/octave stepping, migration,
   and harmonic-minor output.
@@ -53,20 +55,33 @@ The app stays a **single `index.html`** with no build step: open it over
   - The last played note is shown (`In: C#4 → C4`), and arming is not persisted.
   - `test/ui.test.js` (DOM-stub smoke test) covers input selection, monitoring,
     stopped step entry and persistence; it is wired into `test/run.sh`.
-- **5-track layout: 2 melodic + 3 drum tracks.**
-  - Defaults are track 1/2 melodic (ch 1/2) and tracks 3/4/5 drum triggers
-    (ch 3/4/5) for kick 36, snare 38 and closed hat 42, with a simple demo
-    groove. The demo hat is not added to old 4-track saves: `saneState()` zeroes
-    any track that was absent from the input, so migration adds a silent track.
-  - State version is now 3; old 4-track state/imports still load and are
-    upgraded, and their original melodic/trigger flags are preserved.
-  - `droidIni()` now emits pitch outputs only for melodic tracks and allocates
-    gates as `G1.1`–`G1.4` for tracks 1–4, then the next free CV output (`O3`)
-    for track 5. Clock/start remain on `O7`/`O8`; `O4`–`O6` are spare.
+- **4-track layout: 1 melodic + 3 drum tracks.**
+  - Defaults are track 1 melodic (ch 1) and tracks 2/3/4 drum triggers (ch 2/3/4)
+    for kick 36, snare 38 and closed hat 42, with a simple demo groove. Tracks
+    absent from an older state start silent.
+  - State version is now 4. Migrations: a v3 5-track state keeps the first
+    melody and remaps the three drum tracks, dropping the second melody; a v2
+    4-track state keeps the first melody and the old drum, and adds two silent
+    drum tracks. Custom layouts fall back to merging by index.
+  - `droidIni()` emits a pitch output only for the melodic track and allocates
+    gates as `G1.1`–`G1.4` for the four tracks, so all four hardware gates are
+    used and no CV output is needed as a gate. The generic extra-gate path
+    (`_GATEn` + a 0.5 `[copy]`) remains for any future tracks beyond four.
+    Clock/start remain on `O7`/`O8`; `O2`–`O6` are spare.
   - `droid.ini`, the README output table and the tests were updated to match.
   - `defaultState()`, `saneState()`, presets, the UI track/selection/playhead
     arrays and the record-target list all use `TRACK_COUNT`/`S.tracks.length`
-    rather than the old hard-coded 4.
+    rather than a hard-coded count.
+- **Track-type-aware editor UI.**
+  - Melodic tracks expose a Melodic badge, gate %, transposes, note names in
+    the grid, and a selected-step editor with On, Note, per-step
+    −oct/−deg/+deg/+oct, and Tie.
+  - Drum tracks expose a Drum badge, trigger note and gate ms, a hit dot
+    instead of note names, and a Hit-only step editor. Gate %, transpose, note
+    and tie controls are hidden, and wheel/Alt editing no longer touches
+    pitch/tie.
+  - `stepNote(s,ti,si,dir)` is a tested engine helper for single-step note
+    movement; the −/+ buttons and tests use it.
 
 Unchanged on purpose: MIDI clock/start/stop, swing, polymeter, tie/legato,
 trigger mode, per-track MIDI channel, velocity/gate, pattern storage.
@@ -86,10 +101,11 @@ trigger mode, per-track MIDI channel, velocity/gate, pattern storage.
 Key locations in `index.html`:
 
 - `SCALES` / `SCALE_LABELS` — scale table, object order is UI order.
-- `TRACK_COUNT` — 5 tracks (2 melodic, 3 drum); `defaultState()` builds the
+- `TRACK_COUNT` — 4 tracks (1 melodic, 3 drum); `defaultState()` builds the
   layout and demo patterns.
 - `quantise()`, `scaleStep()`, `octaveStep()`, `randomScaleNote()` — pitch helpers.
-- `parseMidi()`, `recordNote()` — live input parsing and step recording.
+- `parseMidi()`, `recordNote()`, `stepNote()` — live input parsing, step
+  recording, and single-step note movement.
 - `saneState()` — merge defaults, validate, snap every pitched step; new tracks
   from an older state start silent.
 - `snapAllNotes()` — re-spell the sequence on scale/root change.
@@ -120,7 +136,7 @@ in-repo UI test later.
 - **Store MIDI notes, not scale degrees.** Scale sizes differ (5, 6, 7, 8, 12
   notes), so a degree index does not transfer cleanly between scales. Storing a
   note and snapping by nearest keeps imports and scale changes predictable.
-- **Global scale and root.** All five tracks share them. Trigger tracks ignore
+- **Global scale and root.** All four tracks share them. Trigger tracks ignore
   pitch.
 - **Nearest-note snapping, ties down.** This is the same tie rule the original
   app used. Example: C minor-flavoured `C Eb G Bb` in C major becomes
@@ -131,12 +147,13 @@ in-repo UI test later.
 - **Single file, no framework.** Keep it deployable by copying one file. If the
   app grows much larger, revisit moving it into the `sequencers` monorepo.
 - **`droid.ini` stays static.** Scale quantisation is done in the browser; no
-  Master18 patch changes are needed. The only hardware accommodation is the
-  fifth gate on a CV output, because the MASTER18 has four hardware gates.
-- **Five tracks in one layout.** Two melodic tracks cover pitched voices, three
-  trigger tracks cover drums. Drums have no pitch output, which also frees CV
-  outputs. A fixed track count keeps the single-file UI and the hardware-gate
-  mapping simple; more tracks would need an output-allocation UI.
+  Master18 patch changes are needed. The four hardware gates cover the four
+  tracks; the extra-gate path is only for any future expansion.
+- **Four tracks in one layout.** One melodic track covers the pitched voice,
+  three trigger tracks cover drums. Drums have no pitch output, so O2–O6 remain
+  free (clock/start use O7/O8). A fixed track count keeps the single-file UI and
+  the hardware-gate mapping simple; more tracks would need an output-allocation
+  UI.
 
 ## Next steps (rough priority)
 
@@ -177,8 +194,8 @@ in-repo UI test later.
 - Should presets reset the scale, or should loading a preset keep the current
   scale and re-snap its notes?
 - ~~Is the target still the M18's 4 CV/gate tracks, or do you want more tracks
-  using spare CV outputs / expanders?~~ Five tracks: 2 melodic + 3 drum. The
-  fifth gate uses a CV output (O3); more tracks would need an allocation UI.
+  using spare CV outputs / expanders?~~ Four tracks: 1 melodic + 3 drum, using
+  all four hardware gates. More tracks would need an allocation UI.
 
 ## Handoff notes
 

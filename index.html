@@ -29,6 +29,11 @@ button.rec.on{background:var(--red);color:#fff;border:none}
 .track{border-left:4px solid var(--c)}
 .track h2{font-size:13px;margin:0;color:var(--c);min-width:70px}
 .track.muted{opacity:.55}
+.track.drum .melodic-only{display:none}
+.track:not(.drum) .drum-only{display:none}
+.mode{font-size:10px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.transposes{display:inline-flex;gap:10px;align-items:center}
+.cell .hit{font-size:15px;line-height:1}
 .grid{display:grid;grid-template-columns:repeat(16,minmax(34px,1fr));gap:4px;margin:8px 0}
 .cell{height:40px;border-radius:5px;background:var(--panel2);border:1px solid var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:11px;user-select:none;cursor:pointer;position:relative}
 .cell:nth-child(4n+1){border-color:#454c57}
@@ -96,7 +101,7 @@ pre{background:#0d0f12;border:1px solid var(--line);border-radius:6px;padding:8p
         <select id="presetList"></select>
         <button id="loadPreset">Load preset</button>
       </div>
-      <p class="note">Steps: <b>click</b> = on/off · <b>right-click</b> or <b>Shift+click</b> = select for editing · <b>mouse wheel</b> = note ±1 scale degree (Shift = octave) · <b>Alt+click</b> = tie/slide. Notes snap to the selected scale on entry, transposition and scale changes. Space = play/stop.</p>
+      <p class="note">Steps: <b>click</b> = on/off · <b>right-click</b> or <b>Shift+click</b> = select for editing · <b>mouse wheel</b> = note ±1 scale degree on melodic tracks (Shift = octave) · <b>Alt+click</b> = tie/slide on melodic tracks. The editor under each track changes only the selected step; drum tracks show hits and trigger controls instead of notes. Notes snap to the selected scale on entry, transposition and scale changes. Space = play/stop.</p>
     </div>
     <div class="box">
       <div class="row"><b>Matching droid.ini</b><button id="copyIni">Copy</button><span id="iniWarn" class="note warn"></span></div>
@@ -183,11 +188,19 @@ function recordNote(s,ti,si,note){
   if(!tr.trigger)st.note=quantise(note,s.scale,s.root|0);
   return j;
 }
-const TRACK_COUNT=5; // 2 melodic + 3 drum
+const TRACK_COUNT=4; // 1 melodic + 3 drum
+/** Move one step's note by scale degrees or octaves (melodic tracks only). Returns the new note, or -1. */
+function stepNote(s,ti,si,dir){
+  const tr=s&&s.tracks&&s.tracks[ti];if(!tr||tr.trigger)return -1;
+  const j=clamp(Math.round(+si||0),0,tr.steps.length-1),st=tr.steps[j];dir=dir|0;
+  if(!dir)return st.note;
+  st.note=quantise(Math.abs(dir)===12?octaveStep(st.note,dir<0?-1:1)
+    :scaleStep(st.note,s.scale,s.root|0,dir<0?-1:1),s.scale,s.root|0);
+  return st.note;
+}
 function defaultState(){
   const melodic=[
-    {pat:[0,4,8,12],note:s=>48+[0,3,7,10][Math.floor(s/4)%4]},
-    {pat:[2,6,10,14],note:()=>36}
+    {pat:[0,4,8,12],note:s=>48+[0,3,7,10][Math.floor(s/4)%4]}
   ];
   const drums=[
     {note:36,steps:[0,4,8,12]},   // kick
@@ -203,23 +216,32 @@ function defaultState(){
         note:mel?mel.note(s):(drum?drum.note:36),
         tie:false}))};
   });
-  return {version:3,bpm:120,swing:50,scale:'chromatic',root:0,clockWhenStopped:false,tracks};
+  return {version:4,bpm:120,swing:50,scale:'chromatic',root:0,clockWhenStopped:false,tracks};
 }
 /** Merge saved/imported state with the defaults and snap every pitched step to the scale. */
 function saneState(x){
   const d=defaultState();
   if(!x||!Array.isArray(x.tracks))return d;
   const s=Object.assign({},d,x);
-  s.version=3;
+  s.version=4;
   if(!SCALES[s.scale])s.scale=d.scale;
   s.root=clamp(Math.round(+s.root||0),0,11);
+  // Layout migrations keep the musically meaningful tracks.
+  const v=+x.version||0,roles=x.tracks.map(t=>!!(t&&t.trigger)).join(',');
+  let srcTracks=x.tracks,migrated=false;
+  if(v===3&&x.tracks.length===5&&roles==='false,false,true,true,true'){
+    srcTracks=[x.tracks[0],x.tracks[2],x.tracks[3],x.tracks[4]];migrated=true; // 2 melodic + 3 drum -> 1 melodic + 3 drum
+  }else if(v<3&&x.tracks.length===4&&roles==='false,false,false,true'){
+    srcTracks=[x.tracks[0],x.tracks[3],null,null];migrated=true; // 3 melodic + 1 drum -> keep melody 1 and the drum
+  }
   s.tracks=d.tracks.map((dt,i)=>{
-    const src=x.tracks[i],t=Object.assign({},dt,src||{});
+    const src=srcTracks[i],t=Object.assign({},dt,src||{});
+    if(migrated)t.ch=i+1; // renumber the remapped layout to 1..4
     t.steps=dt.steps.map((ds,j)=>{const st=Object.assign({},ds,(src&&src.steps&&src.steps[j])||{});
       st.note=clamp(Math.round(+st.note||0),0,127);
       if(!t.trigger)st.note=quantise(st.note,s.scale,s.root);
       return st});
-    // Tracks added by a later format (e.g. the 5th track) start silent.
+    // Tracks added by a later format start silent.
     if(!src)t.steps.forEach(st=>{st.on=false;st.tie=false});
     return t;
   });
@@ -346,13 +368,13 @@ function droidIni(s){
     '# start/reset pulse as 0/5 V on O8','[copy]','    input = _MIDI_START * 0.5','    output = O8');
   return L.join('\n')+'\n';
 }
-if(typeof module!=='undefined')module.exports={createEngine,defaultState,saneState,quantise,noteName,droidIni,SCALES,SCALE_LABELS,scaleIntervals,inScale,scaleStep,octaveStep,randomScaleNote,parseMidi,recordNote,NOTE_NAMES,TRACK_COUNT,PRESETS,presetState};
+if(typeof module!=='undefined')module.exports={createEngine,defaultState,saneState,quantise,noteName,droidIni,SCALES,SCALE_LABELS,scaleIntervals,inScale,scaleStep,octaveStep,randomScaleNote,parseMidi,recordNote,stepNote,NOTE_NAMES,TRACK_COUNT,PRESETS,presetState};
 </script>
 
 <!-- UI -->
 <script id="ui">
 (function(){
-const COLORS=['#4fc3a1','#e8a33d','#7aa2f7','#e0605a','#c678dd'];
+const COLORS=['#4fc3a1','#e8a33d','#7aa2f7','#e0605a'];
 const LS_STATE='m18seq.state',LS_PATS='m18seq.patterns',LS_PORT='m18seq.port',LS_IN='m18seq.input',LS_REC='m18seq.rec';
 const $=id=>document.getElementById(id);
 let S=saneState(load(LS_STATE));
@@ -461,9 +483,10 @@ function syncRecUi(){
   $('arm').classList.toggle('on',R.armed);
   $('arm').textContent=R.armed?'■ Recording':'● Record';
   $('monitor').checked=R.monitor;$('recTrack').value=String(R.track);
+  const drum=S.tracks[R.track]&&S.tracks[R.track].trigger;
   $('recHint').textContent=R.armed
-    ?(engine.running?'Live: notes land on the playing step of track '+(R.track+1)
-      :'Step entry: keys fill step '+(sel[R.track]+1)+' of track '+(R.track+1)+' and advance')
+    ?(engine.running?'Live: '+(drum?'hits':'notes')+' land on the playing step of track '+(R.track+1)
+      :'Step entry: keys fill step '+(sel[R.track]+1)+' of track '+(R.track+1)+(drum?' as hits':'')+' and advance')
     :'Arm Record to capture input';
 }
 S.tracks.forEach((_,i)=>$('recTrack').add(new Option('Track '+(i+1),i)));
@@ -502,35 +525,44 @@ function buildTracks(){
   const root=$('tracks');root.innerHTML='';
   S.tracks.forEach((tr,i)=>{
     const d=document.createElement('div');d.className='box track';d.style.setProperty('--c',COLORS[i]);d.id='trk'+i;
-    d.innerHTML=`<div class="row"><h2>Track ${i+1}</h2>
+    d.innerHTML=`<div class="row"><h2>Track ${i+1}</h2><span class="mode"></span>
       <label>Ch <input type="number" min="1" max="16" data-k="ch"></label>
       <label>Length <input type="number" min="1" max="32" data-k="len"></label>
-      <label>Gate % <input type="number" min="1" max="100" data-k="gate"></label>
+      <label class="melodic-only" title="Note length as a percentage of the step">Gate % <input type="number" min="1" max="100" data-k="gate"></label>
       <label title="Fixed velocity; dynamics come from STEPS">Vel <input type="number" min="1" max="127" data-k="vel"></label>
       <label><input type="checkbox" data-k="mute"> Mute</label>
-      <label title="Drum trigger: fixed note, short gate"><input type="checkbox" data-k="trigger"> Trigger mode</label>
-      <span class="trigopts"><label>note <select data-k="trigNote">${ALL_NOTE_OPTS}</select></label>
+      <label title="Drum trigger: fixed note, short gate"><input type="checkbox" data-k="trigger"> Drum / trigger</label>
+      <span class="trigopts"><label>trig note <select data-k="trigNote">${ALL_NOTE_OPTS}</select></label>
       <label>gate ms <input type="number" min="1" max="1000" data-k="trigMs"></label></span>
       <span style="flex:1"></span>
-      <button data-t="-12" title="Transpose down one octave">−oct</button><button data-t="-1" title="Transpose down one scale degree">−deg</button><button data-t="1" title="Transpose up one scale degree">+deg</button><button data-t="12" title="Transpose up one octave">+oct</button>
+      <span class="melodic-only transposes"><button data-t="-12" title="Transpose down one octave">−oct</button><button data-t="-1" title="Transpose down one scale degree">−deg</button><button data-t="1" title="Transpose up one scale degree">+deg</button><button data-t="12" title="Transpose up one octave">+oct</button></span>
       <button data-a="rand">Randomise</button><button data-a="clear">Clear</button></div>
       <div class="grid" id="grid${i}"></div>
       <div class="ed row"><span>Step <b class="sn"></b></span>
-        <label><input type="checkbox" data-s="on"> On</label>
-        <label>Note <select data-s="note"></select></label>
-        <label title="Hold into next step; next note-on is sent before this note-off (legato/slide)"><input type="checkbox" data-s="tie"> Tie / slide</label>
-        <span class="note qn"></span></div>`;
+        <label><input type="checkbox" data-s="on"> <span class="onLabel">On</span></label>
+        <label class="melodic-only">Note <select data-s="note"></select></label>
+        <button class="melodic-only" data-n="-12" title="Move this step down one octave">−oct</button>
+        <button class="melodic-only" data-n="-1" title="Move this step down one scale degree">−deg</button>
+        <button class="melodic-only" data-n="1" title="Move this step up one scale degree">+deg</button>
+        <button class="melodic-only" data-n="12" title="Move this step up one octave">+oct</button>
+        <label class="melodic-only" title="Hold into next step; next note-on is sent before this note-off (legato/slide)"><input type="checkbox" data-s="tie"> Tie / slide</label>
+        <span class="note melodic-only qn"></span>
+        <span class="note drum-only">Uses the track's trigger note and gate length.</span></div>`;
     root.appendChild(d);
     d.querySelectorAll('[data-k]').forEach(el=>{const k=el.dataset.k;
       el.onchange=()=>{let v=el.type==='checkbox'?el.checked:+el.value;
         const lim={ch:[1,16],len:[1,32],gate:[1,100],vel:[1,127],trigMs:[1,1000],trigNote:[0,127]}[k];
         if(lim)v=Math.max(lim[0],Math.min(lim[1],Math.round(v)||lim[0]));
         tr[k]=v;if(k==='len'&&sel[i]>=v)sel[i]=0;if(k==='ch'&&i===R.track)releaseMon();
+        if(k==='trigger'&&!v)tr.steps.forEach(s=>{s.note=quantise(s.note,S.scale,S.root)}); // drum steps have no note until they become melodic
         renderTrack(i);renderIni();persist()}});
     d.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{const t=+b.dataset.t;
       if(!tr.trigger)tr.steps.forEach(s=>{
         s.note=(t===-1||t===1)?scaleStep(s.note,S.scale,S.root,t):octaveStep(s.note,t<0?-1:1);
         s.note=quantise(s.note,S.scale,S.root)});
+      renderTrack(i);persist()});
+    d.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{
+      if(!tr.trigger)stepNote(S,i,sel[i],+b.dataset.n);
       renderTrack(i);persist()});
     d.querySelector('[data-a=rand]').onclick=()=>{const base=tr.steps[sel[i]].note;
       const lo=clamp(base-12,0,127),hi=clamp(base+12,0,127);
@@ -542,17 +574,24 @@ function buildTracks(){
 function renderTrack(i){
   const tr=S.tracks[i],d=$('trk'+i),g=$('grid'+i);
   d.classList.toggle('muted',tr.mute);
+  d.classList.toggle('drum',tr.trigger);
+  d.querySelector('.mode').textContent=tr.trigger?'Drum':'Melodic';
+  d.querySelector('.onLabel').textContent=tr.trigger?'Hit':'On';
   d.querySelectorAll('[data-k]').forEach(el=>{const v=tr[el.dataset.k];if(el.type==='checkbox')el.checked=v;else el.value=v});
   d.querySelector('.trigopts').style.display=tr.trigger?'':'none';
   g.innerHTML='';
   for(let j=0;j<tr.len;j++){const st=tr.steps[j],c=document.createElement('div');
     c.className='cell'+(st.on?' on':'')+(st.tie&&st.on&&!tr.trigger?' tie':'')+(sel[i]===j?' sel':'')+(ph[i]===j?' ph':'');
-    c.innerHTML=`<span>${noteName(shown(tr,st))}</span><small>${j+1}</small>`;
-    c.onclick=e=>{if(e.shiftKey){selStep(i,j);return}if(e.altKey){st.tie=!st.tie;st.on=true}else st.on=!st.on;sel[i]=j;renderTrack(i);persist()};
+    c.innerHTML=tr.trigger?`<span class="hit">${st.on?'●':'·'}</span><small>${j+1}</small>`
+      :`<span>${noteName(shown(tr,st))}</span><small>${j+1}</small>`;
+    c.title=tr.trigger?'Drum hit · '+noteName(tr.trigNote)+' · click toggles'
+      :'Click toggles · wheel changes note (Shift = octave) · right-click/Shift+click selects';
+    c.onclick=e=>{if(e.shiftKey){selStep(i,j);return}
+      if(e.altKey&&!tr.trigger){st.tie=!st.tie;st.on=true}else st.on=!st.on;
+      sel[i]=j;renderTrack(i);persist()};
     c.oncontextmenu=e=>{e.preventDefault();selStep(i,j)};
     c.onwheel=e=>{e.preventDefault();const dir=e.deltaY<0?1:-1;
-      st.note=e.shiftKey?octaveStep(st.note,dir):scaleStep(st.note,S.scale,S.root,dir);
-      st.note=quantise(st.note,S.scale,S.root);
+      if(!tr.trigger)stepNote(S,i,j,e.shiftKey?12*dir:dir);
       sel[i]=j;renderTrack(i);persist()};
     g.appendChild(c)}
   const s=tr.steps[sel[i]],noteSel=d.querySelector('[data-s=note]');
@@ -560,7 +599,7 @@ function renderTrack(i){
   d.querySelector('.sn').textContent=sel[i]+1;
   d.querySelector('[data-s=on]').checked=s.on;noteSel.value=s.note;d.querySelector('[data-s=tie]').checked=s.tie;
   const q=quantise(s.note,S.scale,S.root);
-  d.querySelector('.qn').textContent=tr.trigger?'Trigger mode: sends fixed note '+noteName(tr.trigNote)+' for '+tr.trigMs+' ms':(q!==s.note?'plays as '+noteName(q)+' (scale quantised)':'');
+  d.querySelector('.qn').textContent=tr.trigger?'':(q!==s.note?'plays as '+noteName(q)+' (scale quantised)':'');
   syncRecUi();
 }
 function selStep(i,j){sel[i]=j;renderTrack(i)}

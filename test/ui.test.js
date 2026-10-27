@@ -55,9 +55,14 @@ vm.runInThisContext(uiSrc,{filename:'ui.js'});
 
 (async()=>{
   await new Promise(r=>setTimeout(r,20));
-  assert.strictEqual(els.tracks.children.length,5,'five track panels');
-  assert.strictEqual(els.recTrack.children.length,5,'five record targets');
-  assert.strictEqual(els.grid4.children.length,16,'fifth track grid rendered');
+  assert.strictEqual(els.tracks.children.length,4,'four track panels');
+  assert.strictEqual(els.recTrack.children.length,4,'four record targets');
+  assert.strictEqual(els.grid3.children.length,16,'fourth track grid rendered');
+  assert(!els.trk0.classList.contains('drum'),'track 1 is melodic');
+  assert(els.trk1.classList.contains('drum'),'track 2 is a drum track');
+  assert(/C3/.test(els.grid0.children[0].innerHTML),'melodic cell shows a note name');
+  assert(/●/.test(els.grid1.children[0].innerHTML),'drum cell shows a hit marker');
+  assert(!/C2/.test(els.grid1.children[0].innerHTML),'drum cell hides the fixed note name');
   assert.strictEqual(inp.onmidimessage!==null,true,'nanoKEY preferred over Midi Through and attached');
   assert.strictEqual(thru.onmidimessage,null,'Midi Through not attached');
   assert.strictEqual(els.inPort.value,'in1','input select shows the keyboard');
@@ -89,7 +94,7 @@ vm.runInThisContext(uiSrc,{filename:'ui.js'});
   els.recTrack.value='2';els.recTrack.onchange();
   inp.onmidimessage({data:[0x90,64,100]});
   assert(els.grid2.children[0].classList.contains('on'),'drum step entry writes a hit');
-  assert(/C2/.test(els.grid2.children[0].innerHTML),'drum cell shows the fixed trigger note');
+  assert(/●/.test(els.grid2.children[0].innerHTML)&&!/C2/.test(els.grid2.children[0].innerHTML),'drum cell stays note-free');
 
   await new Promise(r=>setTimeout(r,260));
   const saved=JSON.parse(store['m18seq.state']);
